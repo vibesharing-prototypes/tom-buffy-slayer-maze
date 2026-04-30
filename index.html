@@ -1,0 +1,816 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Buffy: Slayer Maze</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      background: #0a0005;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      font-family: 'Georgia', serif;
+      color: #fff;
+      user-select: none;
+    }
+
+    h1 {
+      color: #cc2222;
+      font-size: 1.8rem;
+      letter-spacing: 3px;
+      margin-bottom: 4px;
+      text-shadow: 0 0 14px #cc0000, 0 0 30px #660000;
+      font-style: italic;
+    }
+
+    h1 span {
+      color: #e8c97a;
+      font-style: normal;
+    }
+
+    #subtitle {
+      font-size: 0.65rem;
+      color: #884444;
+      letter-spacing: 4px;
+      margin-bottom: 10px;
+      text-transform: uppercase;
+    }
+
+    #hud {
+      display: flex;
+      gap: 28px;
+      margin-bottom: 8px;
+      font-size: 0.7rem;
+      color: #aaa;
+      letter-spacing: 1px;
+    }
+
+    #hud span { color: #e8c97a; }
+
+    #game-container {
+      position: relative;
+      border: 2px solid #550000;
+      box-shadow: 0 0 24px #440000, inset 0 0 20px rgba(80,0,0,0.2);
+    }
+
+    canvas { display: block; }
+
+    #overlay {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      background: rgba(5,0,8,0.82);
+      gap: 16px;
+    }
+
+    #overlay h2 {
+      font-size: 1.3rem;
+      color: #cc2222;
+      text-shadow: 0 0 12px #cc0000;
+      font-style: italic;
+    }
+
+    #overlay p {
+      font-size: 0.58rem;
+      color: #aaa;
+      line-height: 2;
+      text-align: center;
+      max-width: 320px;
+    }
+
+    #overlay p strong { color: #e8c97a; }
+
+    #overlay button {
+      margin-top: 8px;
+      padding: 11px 26px;
+      background: #8b0000;
+      color: #e8c97a;
+      border: 1px solid #cc2222;
+      font-family: 'Georgia', serif;
+      font-size: 0.75rem;
+      cursor: pointer;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      transition: transform 0.1s, box-shadow 0.1s, background 0.2s;
+      box-shadow: 0 0 10px #550000;
+    }
+
+    #overlay button:hover {
+      transform: scale(1.05);
+      background: #aa0000;
+      box-shadow: 0 0 20px #cc0000;
+    }
+
+    #lives-display {
+      display: flex;
+      gap: 5px;
+      align-items: center;
+    }
+
+    /* Stake icon for lives */
+    .life-icon {
+      width: 6px;
+      height: 16px;
+      background: #c8a060;
+      border-radius: 1px 1px 3px 3px;
+      position: relative;
+    }
+    .life-icon::after {
+      content: '';
+      position: absolute;
+      top: -5px;
+      left: -3px;
+      width: 0;
+      height: 0;
+      border-left: 6px solid transparent;
+      border-right: 6px solid transparent;
+      border-bottom: 6px solid #c8a060;
+    }
+
+    #controls-hint {
+      margin-top: 6px;
+      font-size: 0.48rem;
+      color: #443333;
+      text-align: center;
+      line-height: 2.2;
+      letter-spacing: 1px;
+    }
+  </style>
+</head>
+<body>
+  <h1><span>BUFFY</span> : SLAYER MAZE</h1>
+  <div id="subtitle">Welcome to Sunnydale</div>
+  <div id="hud">
+    <div>SLAYS: <span id="score-display">0</span></div>
+    <div>BEST: <span id="high-display">0</span></div>
+    <div>NIGHT: <span id="level-display">1</span></div>
+    <div>STAKES: <span id="lives-display"></span></div>
+  </div>
+  <div id="game-container">
+    <canvas id="canvas"></canvas>
+    <div id="overlay">
+      <h2>Buffy: Slayer Maze</h2>
+      <p>
+        Collect all <strong>blood drops</strong> to clear the night.<br>
+        Grab a <strong>Holy Cross</strong> to stun the vampires!<br>
+        While stunned, stake them for bonus points.<br>
+        Avoid vampires — or lose a stake.
+      </p>
+      <button id="start-btn">Enter Sunnydale</button>
+      <div id="controls-hint">
+        WASD or Arrow Keys to move &nbsp;|&nbsp; P to pause
+      </div>
+    </div>
+  </div>
+
+  <script>
+  (() => {
+    // ─── MAZE ────────────────────────────────────────────────────────────────
+    // 0=dot(blood drop), 1=wall, 2=empty, 3=power(cross), 4=vampire door, 5=vampire spawn
+    const MAZE_TEMPLATE = [
+      [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+      [1,0,0,0,0,0,0,0,0,0,0,0,0,1,1,0,0,0,0,0,0,0,0,0,0,0,0,1],
+      [1,0,1,1,1,1,0,1,1,1,1,1,0,1,1,0,1,1,1,1,1,0,1,1,1,1,0,1],
+      [1,3,1,1,1,1,0,1,1,1,1,1,0,1,1,0,1,1,1,1,1,0,1,1,1,1,3,1],
+      [1,0,1,1,1,1,0,1,1,1,1,1,0,1,1,0,1,1,1,1,1,0,1,1,1,1,0,1],
+      [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+      [1,0,1,1,1,1,0,1,1,0,1,1,1,1,1,1,1,1,0,1,1,0,1,1,1,1,0,1],
+      [1,0,1,1,1,1,0,1,1,0,1,1,1,1,1,1,1,1,0,1,1,0,1,1,1,1,0,1],
+      [1,0,0,0,0,0,0,1,1,0,0,0,0,1,1,0,0,0,0,1,1,0,0,0,0,0,0,1],
+      [1,1,1,1,1,1,0,1,1,1,1,1,2,1,1,2,1,1,1,1,1,0,1,1,1,1,1,1],
+      [1,1,1,1,1,1,0,1,1,1,1,1,2,1,1,2,1,1,1,1,1,0,1,1,1,1,1,1],
+      [1,1,1,1,1,1,0,1,1,2,2,2,2,2,2,2,2,2,2,1,1,0,1,1,1,1,1,1],
+      [1,1,1,1,1,1,0,1,1,2,1,1,1,4,4,1,1,1,2,1,1,0,1,1,1,1,1,1],
+      [1,1,1,1,1,1,0,1,1,2,1,5,5,5,5,5,5,1,2,1,1,0,1,1,1,1,1,1],
+      [2,2,2,2,2,2,0,2,2,2,1,5,5,5,5,5,5,1,2,2,2,0,2,2,2,2,2,2],
+      [1,1,1,1,1,1,0,1,1,2,1,5,5,5,5,5,5,1,2,1,1,0,1,1,1,1,1,1],
+      [1,1,1,1,1,1,0,1,1,2,1,1,1,1,1,1,1,1,2,1,1,0,1,1,1,1,1,1],
+      [1,1,1,1,1,1,0,1,1,2,2,2,2,2,2,2,2,2,2,1,1,0,1,1,1,1,1,1],
+      [1,1,1,1,1,1,0,1,1,2,1,1,1,1,1,1,1,1,2,1,1,0,1,1,1,1,1,1],
+      [1,1,1,1,1,1,0,1,1,2,1,1,1,1,1,1,1,1,2,1,1,0,1,1,1,1,1,1],
+      [1,0,0,0,0,0,0,0,0,0,0,0,0,1,1,0,0,0,0,0,0,0,0,0,0,0,0,1],
+      [1,0,1,1,1,1,0,1,1,1,1,1,0,1,1,0,1,1,1,1,1,0,1,1,1,1,0,1],
+      [1,0,1,1,1,1,0,1,1,1,1,1,0,1,1,0,1,1,1,1,1,0,1,1,1,1,0,1],
+      [1,3,0,0,1,1,0,0,0,0,0,0,0,2,2,0,0,0,0,0,0,0,1,1,0,0,3,1],
+      [1,1,1,0,1,1,0,1,1,0,1,1,1,1,1,1,1,1,0,1,1,0,1,1,0,1,1,1],
+      [1,1,1,0,1,1,0,1,1,0,1,1,1,1,1,1,1,1,0,1,1,0,1,1,0,1,1,1],
+      [1,0,0,0,0,0,0,1,1,0,0,0,0,1,1,0,0,0,0,1,1,0,0,0,0,0,0,1],
+      [1,0,1,1,1,1,1,1,1,1,1,1,0,1,1,0,1,1,1,1,1,1,1,1,1,1,0,1],
+      [1,0,1,1,1,1,1,1,1,1,1,1,0,1,1,0,1,1,1,1,1,1,1,1,1,1,0,1],
+      [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+      [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+    ];
+
+    const ROWS = MAZE_TEMPLATE.length;
+    const COLS = MAZE_TEMPLATE[0].length;
+    const CELL = 20;
+    const W = COLS * CELL;
+    const H = ROWS * CELL;
+
+    const canvas = document.getElementById('canvas');
+    canvas.width = W;
+    canvas.height = H;
+    const ctx = canvas.getContext('2d');
+
+    const overlay      = document.getElementById('overlay');
+    const overlayTitle = overlay.querySelector('h2');
+    const overlayMsg   = overlay.querySelector('p');
+    const startBtn     = document.getElementById('start-btn');
+    const scoreDisplay = document.getElementById('score-display');
+    const highDisplay  = document.getElementById('high-display');
+    const levelDisplay = document.getElementById('level-display');
+    const livesDisplay = document.getElementById('lives-display');
+
+    // ─── VAMPIRE DEFINITIONS ─────────────────────────────────────────────────
+    // Each vampire has a distinct look & AI personality
+    const VAMPIRES = [
+      { name: 'The Master',  color: '#880000', capeColor: '#440000', skinColor: '#c8b8a0' },
+      { name: 'Spike',       color: '#dde8ff', capeColor: '#111122', skinColor: '#e8e0d0' },
+      { name: 'Drusilla',    color: '#9944aa', capeColor: '#550066', skinColor: '#d4c4cc' },
+      { name: 'Angelus',     color: '#334455', capeColor: '#112233', skinColor: '#c0b8a8' },
+    ];
+
+    // ─── STATE ───────────────────────────────────────────────────────────────
+    let maze, dots, score, highScore = 0, lives, level, gameState;
+    let buffy, vampires, frightTimer;
+    let animFrame, modeTimer, scatterMode;
+
+    function initMaze() {
+      maze = MAZE_TEMPLATE.map(row => [...row]);
+      dots = 0;
+      for (let r = 0; r < ROWS; r++)
+        for (let c = 0; c < COLS; c++)
+          if (maze[r][c] === 0 || maze[r][c] === 3) dots++;
+    }
+
+    function spawnBuffy() {
+      buffy = {
+        x: 14 * CELL, y: 23 * CELL,
+        dir: { x: 0, y: 0 },
+        nextDir: { x: 0, y: 0 },
+        speed: 1.5 + (level - 1) * 0.15,
+        hairBob: 0,
+        moving: false,
+        dead: false,
+        deathFrame: 0,
+      };
+    }
+
+    function spawnVampires() {
+      const base = 1.2 + (level - 1) * 0.1;
+      vampires = VAMPIRES.map((vDef, i) => ({
+        ...vDef,
+        x: (13 + i) * CELL, y: (i === 0 ? 11 : 13) * CELL,
+        homeX: [2, 25, 2, 25][i], homeY: [2, 2, 28, 28][i],
+        mode: i === 0 ? 'scatter' : 'house',
+        frighten: false, dusted: false,
+        speed: base * [1, 0.9, 0.9, 0.85][i],
+        dir: { x: [-1,0,0,0][i], y: [0,-1,1,-1][i] },
+        stuck: 0,
+        houseDelay: [0, 100, 200, 300][i],
+        index: i,
+      }));
+    }
+
+    function startGame() {
+      score = 0; lives = 3; level = 1;
+      frightTimer = 0; modeTimer = 0; scatterMode = true;
+      gameState = 'playing';
+      initMaze(); spawnBuffy(); spawnVampires();
+      overlay.style.display = 'none';
+      updateHUD();
+      if (animFrame) cancelAnimationFrame(animFrame);
+      loop();
+    }
+
+    function nextLevel() {
+      level++; frightTimer = 0; modeTimer = 0;
+      initMaze(); spawnBuffy(); spawnVampires();
+      updateHUD(); gameState = 'playing';
+    }
+
+    function loseLife() {
+      lives--;
+      updateHUD();
+      if (lives <= 0) {
+        gameState = 'gameover';
+        if (score > highScore) highScore = score;
+        highDisplay.textContent = highScore;
+        showOverlay('The Hellmouth Wins', 'You have been turned. Game over, Slayer.', 'Try Again');
+      } else {
+        gameState = 'dying';
+        buffy.dead = true;
+        buffy.deathFrame = 0;
+      }
+    }
+
+    function showOverlay(title, msg, btn) {
+      overlayTitle.textContent = title;
+      overlayMsg.innerHTML = msg;
+      startBtn.textContent = btn;
+      overlay.style.display = 'flex';
+    }
+
+    function updateHUD() {
+      scoreDisplay.textContent = score;
+      levelDisplay.textContent = level;
+      highDisplay.textContent = highScore;
+      livesDisplay.innerHTML = Array(lives).fill('<div class="life-icon"></div>').join('');
+    }
+
+    // ─── INPUT ────────────────────────────────────────────────────────────────
+    const keyMap = {
+      ArrowLeft:{x:-1,y:0}, ArrowRight:{x:1,y:0},
+      ArrowUp:{x:0,y:-1},   ArrowDown:{x:0,y:1},
+      a:{x:-1,y:0}, d:{x:1,y:0}, w:{x:0,y:-1}, s:{x:0,y:1},
+    };
+
+    document.addEventListener('keydown', e => {
+      if (e.key === 'p' || e.key === 'P') {
+        if (gameState === 'playing') { gameState = 'paused'; showOverlay('Paused', 'The night stands still...', 'Resume'); }
+        else if (gameState === 'paused') { gameState = 'playing'; overlay.style.display = 'none'; }
+        return;
+      }
+      const d = keyMap[e.key];
+      if (d && gameState === 'playing') { buffy.nextDir = d; e.preventDefault(); }
+    });
+
+    let touchStart = null;
+    canvas.addEventListener('touchstart', e => { touchStart = e.touches[0]; }, {passive:true});
+    canvas.addEventListener('touchend', e => {
+      if (!touchStart) return;
+      const dx = e.changedTouches[0].clientX - touchStart.clientX;
+      const dy = e.changedTouches[0].clientY - touchStart.clientY;
+      if (Math.abs(dx) > Math.abs(dy)) buffy.nextDir = dx > 0 ? {x:1,y:0} : {x:-1,y:0};
+      else buffy.nextDir = dy > 0 ? {x:0,y:1} : {x:0,y:-1};
+      touchStart = null;
+    }, {passive:true});
+
+    startBtn.addEventListener('click', () => {
+      if (gameState === 'paused') { gameState = 'playing'; overlay.style.display = 'none'; }
+      else startGame();
+    });
+
+    // ─── HELPERS ──────────────────────────────────────────────────────────────
+    function isWall(r, c) {
+      if (r < 0 || r >= ROWS || c < 0 || c >= COLS) return true;
+      return maze[r][c] === 1;
+    }
+    function isVampPassable(r, c) {
+      if (r < 0 || r >= ROWS || c < 0 || c >= COLS) return false;
+      return maze[r][c] !== 1;
+    }
+    function canMove(entity, dir) {
+      const m = 2;
+      const nx = entity.x + dir.x * entity.speed;
+      const ny = entity.y + dir.y * entity.speed;
+      for (let r = Math.floor((ny+m)/CELL); r <= Math.floor((ny+CELL-m-1)/CELL); r++)
+        for (let c = Math.floor((nx+m)/CELL); c <= Math.floor((nx+CELL-m-1)/CELL); c++)
+          if (isWall(r, c)) return false;
+      return true;
+    }
+
+    // ─── BUFFY MOVEMENT ───────────────────────────────────────────────────────
+    function moveBuffy() {
+      if (buffy.dead) return;
+      if (buffy.x < -CELL) buffy.x = W;
+      if (buffy.x > W) buffy.x = -CELL;
+
+      if (buffy.nextDir.x !== 0 || buffy.nextDir.y !== 0)
+        if (canMove(buffy, buffy.nextDir)) buffy.dir = { ...buffy.nextDir };
+
+      if (buffy.dir.x !== 0 || buffy.dir.y !== 0) {
+        if (canMove(buffy, buffy.dir)) {
+          buffy.x += buffy.dir.x * buffy.speed;
+          buffy.y += buffy.dir.y * buffy.speed;
+          buffy.moving = true;
+          buffy.hairBob = (buffy.hairBob + 0.18) % (Math.PI * 2);
+        } else {
+          buffy.moving = false;
+        }
+      }
+
+      const cx = Math.floor((buffy.x + CELL/2) / CELL);
+      const cy = Math.floor((buffy.y + CELL/2) / CELL);
+      if (cx >= 0 && cx < COLS && cy >= 0 && cy < ROWS) {
+        const cell = maze[cy][cx];
+        if (cell === 0) {
+          maze[cy][cx] = 2; score += 10; dots--; updateHUD();
+        } else if (cell === 3) {
+          maze[cy][cx] = 2; score += 50; dots--;
+          frightTimer = 420;
+          vampires.forEach(v => { v.frighten = true; v.dusted = false; });
+          updateHUD();
+        }
+      }
+    }
+
+    // ─── VAMPIRE AI ───────────────────────────────────────────────────────────
+    const DIRS = [{x:0,y:-1},{x:1,y:0},{x:0,y:1},{x:-1,y:0}];
+
+    function vampTarget(v) {
+      if (v.dusted) return { tc: 14, tr: 11 };
+      if (v.frighten) return { tc: Math.floor(Math.random()*COLS), tr: Math.floor(Math.random()*ROWS) };
+      if (v.mode === 'scatter') return { tc: v.homeX, tr: v.homeY };
+
+      const pc = Math.floor((buffy.x + CELL/2) / CELL);
+      const pr = Math.floor((buffy.y + CELL/2) / CELL);
+      switch(v.index) {
+        case 0: return { tc: pc, tr: pr };
+        case 1: return { tc: pc + (buffy.dir.x||0)*4, tr: pr + (buffy.dir.y||0)*4 };
+        case 2: return { tc: pc + 2, tr: pr + 2 };
+        default: {
+          const dist = Math.hypot(v.x - buffy.x, v.y - buffy.y);
+          return dist < 8*CELL ? { tc: v.homeX, tr: v.homeY } : { tc: pc, tr: pr };
+        }
+      }
+    }
+
+    function moveVampire(v) {
+      if (v.mode === 'house') {
+        v.y += v.dir.y * 0.5;
+        if (v.houseDelay > 0) { v.houseDelay--; return; }
+        const exitX = 14*CELL, exitY = 11*CELL;
+        if (Math.abs(v.x - exitX) > 1) v.x += v.x < exitX ? 1 : -1;
+        else { v.x = exitX; if (v.y > exitY) v.y -= 1; else { v.mode = 'scatter'; v.dir = DIRS[Math.floor(Math.random()*4)]; } }
+        return;
+      }
+
+      if (v.x < -CELL) v.x = W;
+      if (v.x > W) v.x = -CELL;
+
+      const spd = v.dusted ? v.speed * 2 : (v.frighten ? v.speed * 0.5 : v.speed);
+      const gc = Math.floor((v.x + CELL/2) / CELL);
+      const gr = Math.floor((v.y + CELL/2) / CELL);
+
+      if (Math.abs(v.x - gc*CELL) < spd+1 && Math.abs(v.y - gr*CELL) < spd+1) {
+        v.x = gc*CELL; v.y = gr*CELL;
+        const tgt = vampTarget(v);
+        let bestDir = null, bestDist = Infinity;
+        for (const d of DIRS) {
+          if (!v.frighten && d.x === -v.dir.x && d.y === -v.dir.y) continue;
+          const nr = gr+d.y, nc = gc+d.x;
+          if (!isVampPassable(nr, nc)) continue;
+          if (maze[nr][nc] === 4 && !v.dusted && v.mode !== 'house') continue;
+          const dist = Math.hypot(nc - tgt.tc, nr - tgt.tr);
+          if (dist < bestDist) { bestDist = dist; bestDir = d; }
+        }
+        if (bestDir) v.dir = bestDir;
+        v.stuck = 0;
+      } else {
+        v.stuck++;
+        if (v.stuck > 30) { v.dir = DIRS[Math.floor(Math.random()*4)]; v.stuck = 0; }
+      }
+
+      const nx = v.x + v.dir.x * spd;
+      const ny = v.y + v.dir.y * spd;
+      if (isVampPassable(Math.floor((ny+CELL/2)/CELL), Math.floor((nx+CELL/2)/CELL))) {
+        v.x = nx; v.y = ny;
+      } else {
+        const valid = DIRS.filter(d => isVampPassable(gr+d.y, gc+d.x));
+        if (valid.length) v.dir = valid[Math.floor(Math.random()*valid.length)];
+      }
+
+      if (v.dusted && Math.abs(v.x - 14*CELL) < CELL && Math.abs(v.y - 11*CELL) < CELL*2) {
+        v.dusted = false; v.frighten = false; v.mode = 'house'; v.houseDelay = 60;
+      }
+    }
+
+    function checkCollisions() {
+      for (const v of vampires) {
+        if (v.mode === 'house') continue;
+        const dist = Math.hypot(v.x - buffy.x, v.y - buffy.y);
+        if (dist < CELL * 0.9) {
+          if (v.frighten && !v.dusted) {
+            v.dusted = true; v.frighten = false;
+            score += 200; updateHUD();
+          } else if (!v.dusted) {
+            loseLife(); return;
+          }
+        }
+      }
+    }
+
+    // ─── DRAWING ─────────────────────────────────────────────────────────────
+    function drawMaze() {
+      ctx.fillStyle = '#080005';
+      ctx.fillRect(0, 0, W, H);
+
+      for (let r = 0; r < ROWS; r++) {
+        for (let c = 0; c < COLS; c++) {
+          const x = c * CELL, y = r * CELL;
+          const cell = maze[r][c];
+
+          if (cell === 1) {
+            // Stone/brick wall in dark crimson
+            ctx.fillStyle = '#3a0808';
+            ctx.fillRect(x, y, CELL, CELL);
+            ctx.strokeStyle = '#5a1010';
+            ctx.lineWidth = 1;
+            ctx.strokeRect(x+1, y+1, CELL-2, CELL-2);
+            // mortar lines
+            ctx.fillStyle = '#2a0404';
+            ctx.fillRect(x, y+CELL/2-1, CELL, 2);
+
+          } else if (cell === 0) {
+            // Blood drop
+            const bx = x + CELL/2, by = y + CELL/2;
+            ctx.fillStyle = '#cc1111';
+            ctx.beginPath();
+            ctx.arc(bx, by+1, 2.2, 0, Math.PI*2);
+            ctx.fill();
+            ctx.beginPath();
+            ctx.moveTo(bx, by-3);
+            ctx.quadraticCurveTo(bx+2.5, by-0.5, bx, by+1);
+            ctx.quadraticCurveTo(bx-2.5, by-0.5, bx, by-3);
+            ctx.fillStyle = '#ee2222';
+            ctx.fill();
+
+          } else if (cell === 3) {
+            // Holy cross - glowing gold
+            const t = Date.now() / 400;
+            const glow = 0.6 + 0.4 * Math.sin(t);
+            const bx = x + CELL/2, by = y + CELL/2;
+            ctx.fillStyle = `rgba(230,200,80,${glow})`;
+            // vertical bar
+            ctx.fillRect(bx - 2, by - 7, 4, 14);
+            // horizontal bar
+            ctx.fillRect(bx - 6, by - 3, 12, 4);
+
+          } else if (cell === 4) {
+            // Vampire lair door — iron bars look
+            ctx.fillStyle = '#553333';
+            ctx.fillRect(x+2, y+CELL/2-1, CELL-4, 2);
+            ctx.fillRect(x+4, y+2, 2, CELL-4);
+            ctx.fillRect(x+CELL-6, y+2, 2, CELL-4);
+          }
+        }
+      }
+    }
+
+    function drawBuffy() {
+      const cx = buffy.x + CELL/2;
+      const cy = buffy.y + CELL/2;
+
+      if (buffy.dead) {
+        const frac = Math.min(buffy.deathFrame / 30, 1);
+        if (frac >= 1) return;
+        // Buffy fades and shrinks
+        ctx.globalAlpha = 1 - frac;
+        ctx.save();
+        ctx.translate(cx, cy);
+        ctx.scale(1 - frac * 0.5, 1 - frac * 0.5);
+        drawBuffySprite(0, 0, {x:0,y:0}, 0);
+        ctx.restore();
+        ctx.globalAlpha = 1;
+        return;
+      }
+
+      drawBuffySprite(cx, cy, buffy.dir, buffy.hairBob);
+    }
+
+    function drawBuffySprite(cx, cy, dir, hairBob) {
+      const r = CELL/2 - 1;
+
+      // Body (light pink top)
+      ctx.fillStyle = '#e88080';
+      ctx.beginPath();
+      ctx.ellipse(cx, cy + 2, r * 0.55, r * 0.65, 0, 0, Math.PI*2);
+      ctx.fill();
+
+      // Head (skin tone)
+      ctx.fillStyle = '#f0d8b0';
+      ctx.beginPath();
+      ctx.arc(cx, cy - r * 0.3, r * 0.48, 0, Math.PI*2);
+      ctx.fill();
+
+      // Hair — blonde, bobs when moving
+      const hairOffset = Math.sin(hairBob) * 1.5;
+      ctx.fillStyle = '#e8c840';
+      // top of hair
+      ctx.beginPath();
+      ctx.ellipse(cx, cy - r * 0.6, r * 0.5, r * 0.3, 0, Math.PI, Math.PI*2);
+      ctx.fill();
+      // ponytail side wisps
+      ctx.beginPath();
+      ctx.ellipse(cx - r*0.4, cy - r*0.35 + hairOffset, r*0.18, r*0.35, -0.3, 0, Math.PI*2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.ellipse(cx + r*0.4, cy - r*0.35 - hairOffset, r*0.18, r*0.35, 0.3, 0, Math.PI*2);
+      ctx.fill();
+
+      // Eyes
+      ctx.fillStyle = '#2244aa';
+      ctx.beginPath(); ctx.arc(cx - 3, cy - r*0.3, 1.5, 0, Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.arc(cx + 3, cy - r*0.3, 1.5, 0, Math.PI*2); ctx.fill();
+
+      // Stake (held out in movement direction)
+      const sx = dir.x, sy = dir.y;
+      if (sx !== 0 || sy !== 0) {
+        ctx.strokeStyle = '#c8a060';
+        ctx.lineWidth = 3;
+        ctx.lineCap = 'round';
+        ctx.beginPath();
+        ctx.moveTo(cx + sx * r * 0.4, cy + sy * r * 0.4);
+        ctx.lineTo(cx + sx * (r + 5), cy + sy * (r + 5));
+        ctx.stroke();
+        // Stake tip
+        ctx.fillStyle = '#c8a060';
+        ctx.beginPath();
+        ctx.arc(cx + sx*(r+5), cy + sy*(r+5), 2.5, 0, Math.PI*2);
+        ctx.fill();
+      } else {
+        // Stake at side when idle
+        ctx.strokeStyle = '#c8a060';
+        ctx.lineWidth = 2.5;
+        ctx.lineCap = 'round';
+        ctx.beginPath();
+        ctx.moveTo(cx + r*0.5, cy);
+        ctx.lineTo(cx + r*0.5 + 6, cy - 6);
+        ctx.stroke();
+      }
+    }
+
+    function drawVampire(v) {
+      const x = v.x, y = v.y;
+      const cx = x + CELL/2, cy = y + CELL/2;
+      const r = CELL/2 - 1;
+
+      if (v.dusted) {
+        // Just drifting dust particles
+        const t = Date.now() / 200;
+        ctx.fillStyle = 'rgba(180,130,80,0.5)';
+        for (let i = 0; i < 5; i++) {
+          const angle = (i / 5) * Math.PI * 2 + t;
+          const dist = 4 + Math.sin(t + i) * 3;
+          ctx.beginPath();
+          ctx.arc(cx + Math.cos(angle)*dist, cy + Math.sin(angle)*dist, 1.5, 0, Math.PI*2);
+          ctx.fill();
+        }
+        return;
+      }
+
+      if (v.frighten) {
+        // Frightened vampire — cowering, blue tinge
+        const flash = frightTimer < 100 && Math.floor(Date.now()/200) % 2 === 0;
+        const bodyCol = flash ? '#aaaaff' : '#2222bb';
+
+        // Cape (cowering, wrapped around)
+        ctx.fillStyle = flash ? '#5555aa' : '#111166';
+        ctx.beginPath();
+        ctx.ellipse(cx, cy+2, r*0.85, r*0.9, 0, 0, Math.PI*2);
+        ctx.fill();
+
+        // Peeking scared eyes
+        ctx.fillStyle = '#fff';
+        ctx.beginPath(); ctx.arc(cx-3, cy-2, 2.5, 0, Math.PI*2); ctx.fill();
+        ctx.beginPath(); ctx.arc(cx+3, cy-2, 2.5, 0, Math.PI*2); ctx.fill();
+        ctx.fillStyle = '#ff0000';
+        ctx.beginPath(); ctx.arc(cx-3, cy-2, 1, 0, Math.PI*2); ctx.fill();
+        ctx.beginPath(); ctx.arc(cx+3, cy-2, 1, 0, Math.PI*2); ctx.fill();
+
+        // Cross aversion — small cross visible
+        ctx.fillStyle = `rgba(230,200,80,0.4)`;
+        ctx.fillRect(cx+4, cy+2, 3, 7);
+        ctx.fillRect(cx+1, cy+4, 8, 3);
+        return;
+      }
+
+      // Full vampire drawing
+      const skinCol = v.skinColor;
+      const capeCol = v.capeColor;
+      const bodyCol = v.color;
+
+      // Cape / cloak back
+      ctx.fillStyle = capeCol;
+      ctx.beginPath();
+      ctx.moveTo(cx - r, cy);
+      ctx.quadraticCurveTo(cx - r*1.1, cy + r*1.2, cx - r*0.5, cy + r);
+      ctx.lineTo(cx, cy + r*0.4);
+      ctx.lineTo(cx + r*0.5, cy + r);
+      ctx.quadraticCurveTo(cx + r*1.1, cy + r*1.2, cx + r, cy);
+      ctx.closePath();
+      ctx.fill();
+
+      // Body
+      ctx.fillStyle = bodyCol;
+      ctx.beginPath();
+      ctx.ellipse(cx, cy + 2, r*0.5, r*0.6, 0, 0, Math.PI*2);
+      ctx.fill();
+
+      // Head
+      ctx.fillStyle = skinCol;
+      ctx.beginPath();
+      ctx.arc(cx, cy - r*0.28, r*0.42, 0, Math.PI*2);
+      ctx.fill();
+
+      // Hair (dark)
+      ctx.fillStyle = v.index === 1 ? '#ffffff' : '#111111'; // Spike has white hair
+      ctx.beginPath();
+      ctx.ellipse(cx, cy - r*0.58, r*0.42, r*0.22, 0, Math.PI, Math.PI*2);
+      ctx.fill();
+      if (v.index === 1) {
+        // Spike's slicked back
+        ctx.fillRect(cx - r*0.4, cy - r*0.7, r*0.8, r*0.3);
+      }
+
+      // Glowing red eyes
+      const t = Date.now() / 300;
+      const eyeGlow = 0.7 + 0.3 * Math.sin(t + v.index);
+      ctx.fillStyle = `rgba(255,0,0,${eyeGlow})`;
+      ctx.beginPath(); ctx.arc(cx - 3 + v.dir.x, cy - r*0.28 + v.dir.y, 2, 0, Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.arc(cx + 3 + v.dir.x, cy - r*0.28 + v.dir.y, 2, 0, Math.PI*2); ctx.fill();
+
+      // Fangs
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath();
+      ctx.moveTo(cx - 3, cy - r*0.1);
+      ctx.lineTo(cx - 1.5, cy - r*0.1 + 4);
+      ctx.lineTo(cx - 4, cy - r*0.1);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.moveTo(cx + 1, cy - r*0.1);
+      ctx.lineTo(cx + 2.5, cy - r*0.1 + 4);
+      ctx.lineTo(cx + 4, cy - r*0.1);
+      ctx.fill();
+
+      // Name tag (tiny, only in house)
+      if (v.mode === 'house') {
+        ctx.fillStyle = 'rgba(255,255,255,0.3)';
+        ctx.font = '5px Georgia';
+        ctx.fillText(v.name.split(' ')[0], cx - 8, cy + r + 8);
+      }
+    }
+
+    // ─── MAIN LOOP ────────────────────────────────────────────────────────────
+    function loop() {
+      animFrame = requestAnimationFrame(loop);
+
+      if (gameState === 'paused') {
+        drawMaze(); vampires.forEach(drawVampire); drawBuffy(); return;
+      }
+
+      if (gameState === 'dying') {
+        buffy.deathFrame++;
+        drawMaze(); vampires.forEach(drawVampire); drawBuffy();
+        if (buffy.deathFrame > 38) {
+          gameState = 'playing'; spawnBuffy(); spawnVampires();
+        }
+        return;
+      }
+
+      if (gameState !== 'playing') return;
+
+      // Scatter/chase cycle
+      modeTimer++;
+      if (modeTimer < 420) scatterMode = true;
+      else if (modeTimer < 700) scatterMode = false;
+      else if (modeTimer < 900) scatterMode = true;
+      else { scatterMode = false; if (modeTimer > 2000) modeTimer = 421; }
+
+      vampires.forEach(v => {
+        if (v.mode !== 'house' && !v.frighten && !v.dusted)
+          v.mode = scatterMode ? 'scatter' : 'chase';
+      });
+
+      if (frightTimer > 0) {
+        frightTimer--;
+        if (frightTimer === 0) vampires.forEach(v => { v.frighten = false; });
+      }
+
+      moveBuffy();
+      vampires.forEach(moveVampire);
+      checkCollisions();
+
+      drawMaze();
+      vampires.forEach(drawVampire);
+      drawBuffy();
+
+      if (dots <= 0) {
+        gameState = 'levelcomplete';
+        showOverlay(
+          'Sunnydale Saved!',
+          `Night ${level} cleared! The vampires flee...<br><strong>Preparing night ${level + 1}...</strong>`,
+          ''
+        );
+        startBtn.style.display = 'none';
+        setTimeout(() => { startBtn.style.display = ''; overlay.style.display = 'none'; nextLevel(); }, 1800);
+      }
+    }
+
+    // Initial render
+    initMaze();
+    ctx.fillStyle = '#080005';
+    ctx.fillRect(0, 0, W, H);
+  })();
+  </script>
+</body>
+</html>
